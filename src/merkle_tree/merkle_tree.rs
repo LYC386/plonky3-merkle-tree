@@ -94,8 +94,8 @@ mod tests {
             BabyBear::from_u32(46),
             BabyBear::from_u32(78),
         ];
-        let mt = MerkleTree::new(3, Some(leaves));
-        let pf = mt.gen_merkle_proof(4);
+        let mt = MerkleTree::new(4, Some(leaves));
+        let pf = mt.gen_merkle_proof(3);
         println!("tree: {:?}", mt);
         println!("proof: {:?}", pf);
         println!("result: {}", mt.verify_merkle_proof(pf, 4))

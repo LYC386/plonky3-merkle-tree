@@ -1,29 +1,25 @@
-use p3_air::{Air, AirBuilder, AirBuilderWithContext, BaseAir};
+use p3_air::{Air, AirBuilder, BaseAir};
+use p3_baby_bear::{BabyBear, GenericPoseidon2LinearLayersBabyBear};
 use p3_field::{Field, PrimeCharacteristicRing};
 use p3_matrix::Matrix;
 use p3_matrix::dense::RowMajorMatrix;
-
-use p3_baby_bear::{BabyBear, GenericPoseidon2LinearLayersBabyBear};
-use p3_challenger::{HashChallenger, SerializingChallenger32};
-use p3_circle::CirclePcs;
-use p3_commit::ExtensionMmcs;
-use p3_field::extension::BinomialExtensionField;
-use p3_keccak::Keccak256Hash;
-use p3_merkle_tree::MerkleTreeMmcs;
-use p3_mersenne_31::Mersenne31;
-use p3_uni_stark::{StarkConfig, prove, verify};
-
 use p3_poseidon2_air::{Poseidon2Air, Poseidon2Cols, RoundConstants};
 use std::borrow::Borrow;
 
 use p3_uni_stark::SubAirBuilder;
 
 // Consider making it generic in MerkleTreeAir struct
-const WIDTH: usize = 16;
-const SBOX_DEGREE: u64 = 7;
-const SBOX_REGISTERS: usize = 1;
-const HALF_FULL_ROUNDS: usize = 4;
-const PARTIAL_ROUNDS: usize = 13;
+pub const WIDTH: usize = 16;
+pub const SBOX_DEGREE: u64 = 7;
+pub const SBOX_REGISTERS: usize = 1;
+pub const HALF_FULL_ROUNDS: usize = 4;
+pub const PARTIAL_ROUNDS: usize = 13;
+pub const P2_ROUND_CONSTANTS: RoundConstants<BabyBear, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS> =
+    RoundConstants::<BabyBear, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>::new(
+        p3_baby_bear::BABYBEAR_RC16_EXTERNAL_INITIAL,
+        p3_baby_bear::BABYBEAR_RC16_INTERNAL,
+        p3_baby_bear::BABYBEAR_RC16_EXTERNAL_FINAL,
+    );
 
 type Poseidon2AirType = Poseidon2Air<
     BabyBear,
@@ -35,10 +31,9 @@ type Poseidon2AirType = Poseidon2Air<
     PARTIAL_ROUNDS,
 >;
 
-//TODO - put root, depth, leaf_value in public_values of AirBuilder instead of hard codeing like now.
+//TODO - put root, leaf_value in public_values of AirBuilder instead of hard codeing like now.
 pub struct MerkleTreeAir {
     pub root: u32,
-    pub depth: usize,
     pub leaf_value: u32,
     pub poseidon2_air: Poseidon2Air<
         BabyBear,
@@ -72,7 +67,7 @@ impl<AB: AirBuilder<F = BabyBear>> Air<AB> for MerkleTreeAir {
         self.poseidon2_air.eval(&mut sub);
 
         // Use helper function from Poseidon2Cols to get the hash result
-        // Cast the slice into Poseidon2Cols (starting at col 1)
+        // Transmute the slice into Poseidon2Cols (starting at col 1)
         let p2_cols: &Poseidon2Cols<
             _,
             WIDTH,
@@ -113,4 +108,73 @@ impl<AB: AirBuilder<F = BabyBear>> Air<AB> for MerkleTreeAir {
         builder.when_transition().assert_bool(local[0].clone());
         builder.when_last_row().assert_bool(local[0].clone());
     }
+}
+
+pub fn generate_merkle_proof_trace(
+    leaf_index: u32,
+    leaf_value: BabyBear,
+    merkle_proof: Vec<BabyBear>,
+) -> RowMajorMatrix<BabyBear> {
+    // let round_constants = RoundConstants::<BabyBear, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>::new(
+    //     p3_baby_bear::BABYBEAR_RC16_EXTERNAL_INITIAL,
+    //     p3_baby_bear::BABYBEAR_RC16_INTERNAL,
+    //     p3_baby_bear::BABYBEAR_RC16_EXTERNAL_FINAL,
+    // );
+    let mut current_node = leaf_value;
+    let mut current_index = leaf_index;
+    let mut mt_trace_vec = vec![];
+
+    // The number of trace rows needs to be a power of two for the STARK prover.
+    // Might require some padding depends on merkle_proof.len()
+    for sibling in merkle_proof {
+        let is_odd = current_index & 1 == 1;
+        let input = if is_odd {
+            let mut input = vec![[BabyBear::ZERO; WIDTH]];
+            input[0][0] = sibling;
+            input[0][1] = current_node;
+            input
+        } else {
+            let mut input = vec![[BabyBear::ZERO; WIDTH]];
+            input[0][0] = current_node;
+            input[0][1] = sibling;
+            input
+        };
+        // generate trace for poseidon2 air
+        let mut p2_trace = p3_poseidon2_air::generate_trace_rows::<
+            BabyBear,
+            GenericPoseidon2LinearLayersBabyBear,
+            WIDTH,
+            SBOX_DEGREE,
+            SBOX_REGISTERS,
+            HALF_FULL_ROUNDS,
+            PARTIAL_ROUNDS,
+        >(input, &P2_ROUND_CONSTANTS, 0);
+        // Use helper function from Poseidon2Cols to get the hash result
+        // Transmute the slice into Poseidon2Cols (starting at col 1)
+        let p2_cols: &Poseidon2Cols<
+            _,
+            WIDTH,
+            SBOX_DEGREE,
+            SBOX_REGISTERS,
+            HALF_FULL_ROUNDS,
+            PARTIAL_ROUNDS,
+        > = p2_trace.values[..].borrow();
+        let output = p2_cols.ending_full_rounds[HALF_FULL_ROUNDS - 1].post[0];
+        // push is_odd + p2_trace_vec to mt_trace_vec
+        mt_trace_vec.push(BabyBear::from_bool(is_odd));
+        mt_trace_vec.append(&mut p2_trace.values);
+        //update current_node, current_index for next round
+        current_node = output;
+        current_index >>= 1;
+    }
+    // mt_trace_width = p2_trace_width + 1;
+    let mt_trace_width = p3_poseidon2_air::num_cols::<
+        WIDTH,
+        SBOX_DEGREE,
+        SBOX_REGISTERS,
+        HALF_FULL_ROUNDS,
+        PARTIAL_ROUNDS,
+    >() + 1;
+    let mt_trace = RowMajorMatrix::new(mt_trace_vec, mt_trace_width);
+    mt_trace
 }
