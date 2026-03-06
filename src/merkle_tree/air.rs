@@ -31,7 +31,8 @@ type Poseidon2AirType = Poseidon2Air<
     PARTIAL_ROUNDS,
 >;
 
-//TODO - put root, leaf_value in public_values of AirBuilder instead of hard codeing like now.
+//TODO - put root, leaf_value in public_values of AirBuilder instead of hard coding like now.
+// TODO - make it more generic
 pub struct MerkleTreeAir {
     pub root: u32,
     pub leaf_value: u32,
