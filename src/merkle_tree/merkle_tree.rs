@@ -2,7 +2,7 @@ use p3_baby_bear::{BabyBear, Poseidon2BabyBear};
 use p3_field::PrimeCharacteristicRing;
 use p3_symmetric::{PseudoCompressionFunction, TruncatedPermutation};
 
-// WIDTH=3: state = [left, right, 0(capacity)] → permute → output state[0]
+// WIDTH=16: state = [left, right, 0, ..., 0] → permute → output state[0]
 // CHUNK=1: each input/output is a single Bn254 element
 // N=2: two inputs compressed to one output
 type Poseidon2Compress = TruncatedPermutation<Poseidon2BabyBear<16>, 2, 1, 16>;

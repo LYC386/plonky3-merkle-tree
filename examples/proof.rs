@@ -25,7 +25,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Registry};
 
 type Dft = p3_dft::Radix2DitParallel<BabyBear>;
-
+// Settings taken from Plonky3/poseidon2-air/examples/prove_poseidon2_baby_bear_keccak_zk.rs
 fn main() -> Result<(), impl Debug> {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())

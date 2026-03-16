@@ -44,7 +44,7 @@ pub struct MerkleTreeAir {
         SBOX_REGISTERS,
         HALF_FULL_ROUNDS,
         PARTIAL_ROUNDS,
-    >, // pub node: u32,
+    >,
 }
 
 impl<F: Field> BaseAir<F> for MerkleTreeAir {
@@ -79,6 +79,9 @@ impl<AB: AirBuilder<F = BabyBear>> Air<AB> for MerkleTreeAir {
         > = local[1..].borrow();
         let hash_output = p2_cols.ending_full_rounds[HALF_FULL_ROUNDS - 1].post[0];
 
+        // Constrain: is_odd should be bool in every row
+        builder.assert_bool(local[0].clone());
+
         // Constrain: first left (col[1]) or right (col[2]) input should be the leaf_value based on
         // is_odd_index (col[0])
         builder.when_first_row().assert_zero(
@@ -96,18 +99,6 @@ impl<AB: AirBuilder<F = BabyBear>> Air<AB> for MerkleTreeAir {
         // Constrain: final output == root
         let root = AB::Expr::from_u32(self.root);
         builder.when_last_row().assert_eq(root, hash_output);
-
-        // The above constrain should cover both below
-        // Constrain: hash output == next row's current node
-        // builder.when_transition().assert_eq(hash_output, next[0]);
-
-        // Constrain: hash input == (sibling, current_node) or (current_node, sibling) based on is_odd_index
-        // builder.when_transition().assert_zeros([]);
-
-        // Constrain: is_odd should be bool
-        builder.when_first_row().assert_bool(local[0].clone());
-        builder.when_transition().assert_bool(local[0].clone());
-        builder.when_last_row().assert_bool(local[0].clone());
     }
 }
 
@@ -116,11 +107,6 @@ pub fn generate_merkle_proof_trace(
     leaf_value: BabyBear,
     merkle_proof: Vec<BabyBear>,
 ) -> RowMajorMatrix<BabyBear> {
-    // let round_constants = RoundConstants::<BabyBear, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>::new(
-    //     p3_baby_bear::BABYBEAR_RC16_EXTERNAL_INITIAL,
-    //     p3_baby_bear::BABYBEAR_RC16_INTERNAL,
-    //     p3_baby_bear::BABYBEAR_RC16_EXTERNAL_FINAL,
-    // );
     let mut current_node = leaf_value;
     let mut current_index = leaf_index;
     let mut mt_trace_vec = vec![];
